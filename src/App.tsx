@@ -4,7 +4,7 @@
  */
 
 import { Phone, ZoomIn, Globe, Share2 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function App() {
   const [formData, setFormData] = useState({
@@ -14,6 +14,44 @@ export default function App() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState("");
+  const [paymentCode, setPaymentCode] = useState("");
+  const [isPaymentSuccess, setIsPaymentSuccess] = useState(false);
+
+  const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz-dHlvfP_-Ky6AWsd5oU56uGhkK_sJ6jgPGS3ivqWWJyg4ciGmsBIsQ4nZrGVsnhdw/exec";
+
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval>;
+
+    if (paymentCode && !isPaymentSuccess) {
+      intervalId = setInterval(async () => {
+        try {
+          // Google Apps Script thường chặn yêu cầu GET thông thường qua Fetch do lỗi CORS khi không phản hồi đúng headers từ doGet.
+          // Để khắc phục triệt để nhất, ta gửi yêu cầu checking thông qua phương thức POST thay vì GET.
+          const response = await fetch(GOOGLE_SCRIPT_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            // Gửi dữ liệu dưới dạng text thuần (x-www-form-urlencoded) thì Apps Script sẽ đọc và bóc tách dễ hơn chống lỗi CORS preflight.
+            body: `action=checkPayment&code=${paymentCode}`,
+          });
+          
+          const result = await response.json();
+          // Kiểm tra xem trạng thái thanh toán có chính xác là "ĐÃ THANH TOÁN" không
+          if (result && result.status && result.status.trim().toUpperCase() === "ĐÃ THANH TOÁN") {
+            setIsPaymentSuccess(true);
+            clearInterval(intervalId);
+          }
+        } catch (error) {
+          console.error("Lỗi khi kiểm tra phương thức thanh toán:", error);
+        }
+      }, 5000); // Kiểm tra mỗi 5 giây
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [paymentCode, isPaymentSuccess, GOOGLE_SCRIPT_URL]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -27,14 +65,14 @@ export default function App() {
     setIsSubmitting(true);
     setSubmitMessage("");
 
-    // TODO: Thay thế chuỗi bên dưới bằng Web App URL của bạn sau khi deploy App Script
-    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzpF2IPjjxOcZjTNdLDvVt-YXiWb0Q39H97lg0v8U7hnpKJJ_5YZUPRddPGoksJoGA1/exec";
-
     if (!GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL === "YOUR_WEB_APP_URL_HERE") {
       alert("Vui lòng cập nhật GOOGLE_SCRIPT_URL trong mã nguồn (mở file App.tsx dòng 24) với URL của Web App bạn vừa tạo!");
       setIsSubmitting(false);
       return;
     }
+
+    // Tạo mã thanh toán riêng biệt (HIEU + 6 chữ số ngẫu nhiên)
+    const randomCode = "HIEU" + Math.floor(100000 + Math.random() * 900000);
 
     try {
       const response = await fetch(GOOGLE_SCRIPT_URL, {
@@ -43,10 +81,12 @@ export default function App() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(formData),
+        // Gửi kèm paymentCode lên Google Script đề phòng bạn cần lưu vào Google Sheet
+        body: JSON.stringify({ ...formData, paymentCode: randomCode }),
       });
 
       setSubmitMessage("Cảm ơn bạn! Thông tin đã được ghi nhận.");
+      setPaymentCode(randomCode); // Cho hiển thị QR Code
       setFormData({ name: "", email: "", phone: "" });
     } catch (error) {
       console.error("Error submitting form:", error);
@@ -329,85 +369,116 @@ export default function App() {
               bán hàng từ chủ đầu tư.
             </p>
           </div>
-          <form
-            className="space-y-10"
-            onSubmit={handleSubmit}
-          >
-            <div className="relative">
-              <input
-                className="peer w-full bg-transparent border-t-0 border-x-0 border-b border-outline-variant focus:border-secondary focus:ring-0 transition-colors py-3 px-0 outline-none"
-                id="name"
-                placeholder=" "
-                type="text"
-                required
-                value={formData.name}
-                onChange={handleChange}
-                disabled={isSubmitting}
-              />
-              <label
-                className="absolute left-0 -top-4 text-xs font-label font-bold uppercase tracking-widest text-secondary transition-all peer-placeholder-shown:top-3 peer-placeholder-shown:text-base peer-placeholder-shown:text-on-surface-variant peer-placeholder-shown:font-normal peer-placeholder-shown:capitalize peer-focus:-top-4 peer-focus:text-xs peer-focus:text-secondary peer-focus:font-bold pointer-events-none"
-                htmlFor="name"
-              >
-                Họ và tên
-              </label>
-            </div>
-            <div className="relative">
-              <input
-                className="peer w-full bg-transparent border-t-0 border-x-0 border-b border-outline-variant focus:border-secondary focus:ring-0 transition-colors py-3 px-0 outline-none"
-                id="email"
-                placeholder=" "
-                type="email"
-                required
-                value={formData.email}
-                onChange={handleChange}
-                disabled={isSubmitting}
-              />
-              <label
-                className="absolute left-0 -top-4 text-xs font-label font-bold uppercase tracking-widest text-secondary transition-all peer-placeholder-shown:top-3 peer-placeholder-shown:text-base peer-placeholder-shown:text-on-surface-variant peer-placeholder-shown:font-normal peer-placeholder-shown:capitalize peer-focus:-top-4 peer-focus:text-xs peer-focus:text-secondary peer-focus:font-bold pointer-events-none"
-                htmlFor="email"
-              >
-                Địa chỉ Email
-              </label>
-            </div>
-            <div className="relative">
-              <input
-                className="peer w-full bg-transparent border-t-0 border-x-0 border-b border-outline-variant focus:border-secondary focus:ring-0 transition-colors py-3 px-0 outline-none"
-                id="phone"
-                placeholder=" "
-                type="tel"
-                required
-                value={formData.phone}
-                onChange={handleChange}
-                disabled={isSubmitting}
-              />
-              <label
-                className="absolute left-0 -top-4 text-xs font-label font-bold uppercase tracking-widest text-secondary transition-all peer-placeholder-shown:top-3 peer-placeholder-shown:text-base peer-placeholder-shown:text-on-surface-variant peer-placeholder-shown:font-normal peer-placeholder-shown:capitalize peer-focus:-top-4 peer-focus:text-xs peer-focus:text-secondary peer-focus:font-bold pointer-events-none"
-                htmlFor="phone"
-              >
-                Số điện thoại
-              </label>
-            </div>
-
-            {submitMessage && (
-              <div className={`p-4 rounded text-center font-medium ${submitMessage.includes('lỗi') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                {submitMessage}
+          {!paymentCode ? (
+            <form
+              className="space-y-10"
+              onSubmit={handleSubmit}
+            >
+              <div className="relative">
+                <input
+                  className="peer w-full bg-transparent border-t-0 border-x-0 border-b border-outline-variant focus:border-secondary focus:ring-0 transition-colors py-3 px-0 outline-none"
+                  id="name"
+                  placeholder=" "
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={handleChange}
+                  disabled={isSubmitting}
+                />
+                <label
+                  className="absolute left-0 -top-4 text-xs font-label font-bold uppercase tracking-widest text-secondary transition-all peer-placeholder-shown:top-3 peer-placeholder-shown:text-base peer-placeholder-shown:text-on-surface-variant peer-placeholder-shown:font-normal peer-placeholder-shown:capitalize peer-focus:-top-4 peer-focus:text-xs peer-focus:text-secondary peer-focus:font-bold pointer-events-none"
+                  htmlFor="name"
+                >
+                  Họ và tên
+                </label>
               </div>
-            )}
+              <div className="relative">
+                <input
+                  className="peer w-full bg-transparent border-t-0 border-x-0 border-b border-outline-variant focus:border-secondary focus:ring-0 transition-colors py-3 px-0 outline-none"
+                  id="email"
+                  placeholder=" "
+                  type="email"
+                  required
+                  value={formData.email}
+                  onChange={handleChange}
+                  disabled={isSubmitting}
+                />
+                <label
+                  className="absolute left-0 -top-4 text-xs font-label font-bold uppercase tracking-widest text-secondary transition-all peer-placeholder-shown:top-3 peer-placeholder-shown:text-base peer-placeholder-shown:text-on-surface-variant peer-placeholder-shown:font-normal peer-placeholder-shown:capitalize peer-focus:-top-4 peer-focus:text-xs peer-focus:text-secondary peer-focus:font-bold pointer-events-none"
+                  htmlFor="email"
+                >
+                  Địa chỉ Email
+                </label>
+              </div>
+              <div className="relative">
+                <input
+                  className="peer w-full bg-transparent border-t-0 border-x-0 border-b border-outline-variant focus:border-secondary focus:ring-0 transition-colors py-3 px-0 outline-none"
+                  id="phone"
+                  placeholder=" "
+                  type="tel"
+                  required
+                  value={formData.phone}
+                  onChange={handleChange}
+                  disabled={isSubmitting}
+                />
+                <label
+                  className="absolute left-0 -top-4 text-xs font-label font-bold uppercase tracking-widest text-secondary transition-all peer-placeholder-shown:top-3 peer-placeholder-shown:text-base peer-placeholder-shown:text-on-surface-variant peer-placeholder-shown:font-normal peer-placeholder-shown:capitalize peer-focus:-top-4 peer-focus:text-xs peer-focus:text-secondary peer-focus:font-bold pointer-events-none"
+                  htmlFor="phone"
+                >
+                  Số điện thoại
+                </label>
+              </div>
 
-            <div className="pt-6">
-              <button
-                className="w-full bg-secondary text-on-secondary py-5 font-bold text-lg hover:brightness-110 transition-all shadow-xl tracking-widest cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
-                type="submit"
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? "ĐANG GỬI..." : "ĐĂNG KÝ NGAY"}
-              </button>
-              <p className="text-center text-[10px] mt-6 opacity-50 font-label">
-                Bằng việc đăng ký, quý khách đồng ý với chính sách bảo mật thông
-                tin của chúng tôi.
+              {submitMessage && (
+                <div className={`p-4 rounded text-center font-medium ${submitMessage.includes('lỗi') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                  {submitMessage}
+                </div>
+              )}
+
+              <div className="pt-6">
+                <button
+                  className="w-full bg-secondary text-on-secondary py-5 font-bold text-lg hover:brightness-110 transition-all shadow-xl tracking-widest cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
+                  type="submit"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? "ĐANG GỬI..." : "ĐĂNG KÝ NGAY"}
+                </button>
+                <p className="text-center text-[10px] mt-6 opacity-50 font-label">
+                  Bằng việc đăng ký, quý khách đồng ý với chính sách bảo mật thông
+                  tin của chúng tôi.
+                </p>
+              </div>
+            </form>
+          ) : (
+            <div className="flex flex-col items-center bg-white p-8 md:p-12 border border-outline-variant/30 rounded-2xl shadow-xl mt-4 animate-in fade-in duration-500">
+              <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6">
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+              </div>
+              <h3 className="font-headline text-2xl font-bold text-primary mb-2 text-center">Đăng ký thành công!</h3>
+              <p className="text-on-surface-variant text-center mb-8 max-w-md">
+                Cảm ơn bạn đã quan tâm đến Vinhomes Cần Giờ. Để hoàn tất quy trình giữ chỗ, vui lòng thanh toán khoản phí <strong className="text-secondary text-lg">10.000đ</strong> bằng cách quét mã QR bên dưới.
+              </p>
+              
+              <div className="bg-surface-container-lowest p-4 border-2 border-primary/10 rounded-2xl mb-6 shadow-sm">
+                <img
+                  src={`https://qr.sepay.vn/img?bank=VPBank&acc=0981766498&template=compact&amount=10000&des=${paymentCode}`}
+                  alt="Thanh toán VietQR"
+                  className="w-64 h-64 md:w-72 md:h-72 object-contain rounded-lg"
+                />
+              </div>
+
+              <div className="flex flex-col items-center p-4 bg-primary/5 w-full rounded-xl border border-primary/10">
+                <span className="text-sm text-on-surface-variant mb-1">Nội dung chuyển khoản (Bắt buộc nhập chính xác)</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl font-mono font-bold tracking-widest text-[#0068ff]">{paymentCode}</span>
+                </div>
+              </div>
+              
+              <p className="text-xs text-center text-on-surface-variant/70 mt-6 max-w-sm">
+                *Hệ thống sẽ ghi nhận trạng thái và ưu tiên lịch hẹn tư vấn cho bạn ngay khi nhận được thanh toán với nội dung trên.
               </p>
             </div>
-          </form>
+          )}
         </div>
       </section>
 
@@ -472,6 +543,37 @@ export default function App() {
           <Phone className="fill-current w-7 h-7" />
         </a>
       </div>
+
+      {/* Payment Success Popup */}
+      {isPaymentSuccess && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12 max-w-lg w-full flex flex-col items-center text-center animate-in zoom-in-95 duration-500">
+            <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6 shadow-inner border-[4px] border-white">
+              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+            </div>
+            <h3 className="font-headline text-3xl font-bold text-primary mb-4 leading-tight">Thanh toán thành công!</h3>
+            <p className="text-on-surface-variant mb-8 text-lg">
+              Chúc mừng Quý khách đã gửi yêu cầu. Mời Quý khách tham gia ngay <strong>Nhóm Zalo Ưu Tiên</strong> dành riêng cho khách hàng để được tư vấn sớm nhất và nhận đặc quyền!
+            </p>
+            <a
+              href="https://zalo.me/g/YOUR_ZALO_GROUP_LINK"
+              target="_blank"
+              rel="noreferrer"
+              className="w-full bg-[#0068ff] text-white py-4 px-6 font-bold text-lg rounded-xl hover:brightness-110 active:scale-95 transition-all shadow-lg flex items-center justify-center gap-3 overflow-hidden relative"
+            >
+              <div className="absolute inset-0 bg-white/20 blur-md pointer-events-none translate-y-full hover:translate-y-0 transition-transform duration-500"></div>
+              <svg className="w-6 h-6 fill-current relative z-10" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M23.167 12.871c0-4.664-4.962-8.45-11.083-8.45C5.962 4.421 1 8.207 1 12.871c0 3.708 3.125 6.848 7.747 8.016l-1.026 3.123c-.156.475.337.892.748.618l3.966-2.646c.216.024.437.037.66.037 6.121 0 11.083-3.786 11.083-8.45l-.011.002z"></path></svg>
+              <span className="relative z-10">THAM GIA NHÓM ZALO</span>
+            </a>
+            <button 
+              onClick={() => setIsPaymentSuccess(false)}
+              className="mt-6 text-on-surface-variant hover:text-primary transition-colors text-sm font-semibold underline underline-offset-4"
+            >
+              Đóng thông báo
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
